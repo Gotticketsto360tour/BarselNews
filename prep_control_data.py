@@ -1,15 +1,13 @@
 import pandas as pd
 import seaborn as sns
 
-political = pd.read_csv("data/Average_New2023.csv", sep=";")
+# political = pd.read_csv("data/Average_New2023.csv", sep=";")
 
-political = pd.read_csv("data/data_political.csv")
+# political = pd.read_csv("data/data_political.csv", sep=";")
 
-political[["Newspaper", "Political_Orientation"]].drop_duplicates()
+# political = pd.read_csv("data/data_political_april.csv", sep=";")
 
 controls = pd.read_csv("data/Average_Article_sentiment.csv", sep=";")
-
-political["Newspaper"].value_counts()
 
 list_of_right = [
     "Jyllands-Posten",
@@ -43,17 +41,19 @@ def get_pol_orientation(string):
         return None
 
 
-political["political_orientation"] = political["Newspaper"].apply(get_pol_orientation)
+# political["political_orientation"] = political["Newspaper"].apply(get_pol_orientation)
 
-political = political[[x for x in political.columns if x != "Unnamed: 0"]]
+# political = political[[x for x in political.columns if x != "Unnamed: 0"]]
 
-political.to_csv("data/data_political.csv", sep=";", index=False)
-
-no_dups = controls.drop_duplicates("article")
+# political.to_csv("data/control_data.csv", sep=";", index=False)
 
 controls["Political_Orientation"] = controls["Newspaper"].apply(get_pol_orientation)
 
-controls = controls[controls["Political_Orientation"].notna()].reset_index(drop=True)
-controls = controls[~controls["køn"].isin(["?", "Begge"])].reset_index(drop=True)
+# controls = controls[controls["Political_Orientation"].notna()].reset_index(drop=True)
+# controls = controls[~controls["køn"].isin(["?", "Begge"])].reset_index(drop=True)
+
+controls["length"] = controls["sentences"].apply(lambda x: len(x.split()))
+controls = controls[controls["length"] > 2].reset_index(drop=True)
+controls = controls[[x for x in controls.columns if x != "Unnamed: 0"]]
 
 controls.to_csv("data/control_data.csv", index=False)

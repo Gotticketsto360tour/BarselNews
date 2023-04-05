@@ -1,14 +1,6 @@
 import pandas as pd
 import string
 import spacy
-import pyLDAvis.gensim_models
-from gensim.corpora.dictionary import Dictionary
-
-# from gensim.models import LdaMulticore
-from gensim.models.ldamodel import LdaModel
-from danlp.models import load_bert_tone_model
-from tqdm import tqdm
-import seaborn as sns
 
 d = pd.read_csv("data/Article_sentiment.csv", sep=";")
 
@@ -22,19 +14,10 @@ def which_max(x, y, z):
             return list_of_labels[i]
 
 
-d["max_prob"] = d.apply(
-    lambda x: which_max(x["positive_prob"], x["neutral_prob"], x["negative_prob"]),
-    axis=1,
-)
+d["length"] = d["sentences"].apply(lambda x: len(x.split()))
+d = d[d["length"] > 2].reset_index(drop=True)
 
-d_count = (
-    d.groupby(["merge_index", "max_prob"])
-    .agg(N=("ID", "count"), gender=("køn", "first"))
-    .reset_index()
-)
-
-d["score"] = d.apply(lambda x: x["positive_prob"] - x["negative_prob"], axis=1)
-d = d[d["køn"].isin(["Mand", "kvinde"])]
+d = d[d["køn"].isin(["Mand", "kvinde"])].reset_index(drop=True)
 d["køn"] = pd.Categorical(d["køn"]).codes
 
 political = pd.read_csv("data/data_political1.csv")
@@ -137,8 +120,6 @@ d_long["word"] = d_long["tokens"].apply(
     lambda x: x.translate(str.maketrans("", "", string.punctuation))
 )
 
-import seaborn as sns
-
 counts = d_long["word"].value_counts().reset_index()
 
 mapping = {
@@ -240,4 +221,8 @@ data = data.merge(
     how="outer",
 )
 
+# add political information for  article sentiment and clean for sentences with less than 3 words
+d.to_csv("data/article_sentiment.csv", index=False)
+
+# final data for LDA
 data.to_csv("data/preprocessed_words.csv", index=False)
