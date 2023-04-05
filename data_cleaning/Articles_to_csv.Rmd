@@ -1,0 +1,310 @@
+---
+title: "Articles made into csv"
+author: "Sara Krejberg"
+date: '2022-11-14'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Load packages
+```{r}
+pacman::p_load(pdftools, tidyverse, stringr, tesseract, tm, stringi, anytime, tokenizers)
+install.packages("stringi")
+# Loading this will enable you to work with special characters such as æøå
+Sys.setlocale(category = "LC_ALL", locale = "UTF-8")
+```
+
+Loading articles:
+```{r}
+# this is only articles from nationwide - aviser, dr.dk and tv2.
+setwd("./data_cleaning/pdfs")
+files <- list.files(pattern = "pdf$")
+BarselArticles_only <- lapply(files, pdf_text)
+
+setwd("../..")
+
+setwd("./data/artikler/average_articles")
+files <- list.files(pattern = "pdf$")
+average_articles <- lapply(files, pdf_text)
+```
+
+Cleaning text:
+```{r}
+clean_Text2 <- function(article) {
+
+  # remove \n as indicates lineshift
+  BA <- gsub(pattern = ("\\\\n"), replacement = " ", x = article)
+
+  BA <- gsub(pattern = ('\\"'), replacement = " ", x = BA)
+
+  BA <- gsub(pattern = ("\\\\"), replacement = " ", x = BA)
+
+
+  # make text lower
+  # BA <- tolower(BA)
+
+  # remove all text before ID
+  BA <- sub(".*Id:", "", BA)
+
+  # remove "all material infor...."
+  BA <- sub("Alt mediemateriale fra Infomedia.*", "", BA)
+  BA <- sub("Alt materiale i Infomedia.*", "", BA)
+
+  # remove weird spaces
+  BA <- str_replace_all(BA, "[\\s]+", " ")
+
+  BA <- sub("https.*mediearkiv", "", BA)
+
+  BA <- sub("/link?articles=e8728cea 2/3 , 01.12.2022 14.47", "", BA)
+
+
+  # remove id nummeret
+  BA <- substring(BA, 10)
+
+  return(BA)
+}
+```
+
+
+Organize the data and create a column for the name of the journalist, name of the newspaper, date, etc.
+
+```{r}
+organiseData <- function(article, cleanTX) {
+  DF <- data.frame(matrix(ncol = 0, nrow = 1))
+
+  # Getting article ID
+  id1 <- gsub(".*\\Id:", "", article)
+  DF$ID <- str_extract(id1, "[A-Z|a-z|0-9|!]{7,8}")
+
+  # Getting newspapers name
+  newspaper <- str_extract(article, regex("(?<= januar|februar|marts|april|maj|juni|august|juli|september|oktober |november|december).*"))
+  newspaper1 <- substring(newspaper, 7)
+  DF$Newspaper <- sub(",.*", "", newspaper1)
+
+  # Getting date
+  DF$Date <- str_extract(article, "[0-9]+. januar 2019|[0-9]+. januar 2020|[0-9]+. januar 2021|[0-9]+. januar 2022|[0-9]+. februar 2019|[0-9]+. februar 2020|[0-9]+. februar 2021|[0-9]+. februar 2022|[0-9]+. marts 2019|[0-9]+. marts 2020|[0-9]+. marts 2021|[0-9]+. marts 2022|[0-9]+. april 2019|[0-9]+. april 2020|[0-9]+. april 2021|[0-9]+. april 2022|[0-9]+. maj 2019|[0-9]+. maj 2020|[0-9]+. maj 2021|[0-9]+. maj 2022|[0-9]+. juni 2019|[0-9]+. juni 2020|[0-9]+. juni 2021|[0-9]+. juni 2022|[0-9]+. juli 2019|[0-9]+. juli 2020|[0-9]+. juli 2021|[0-9]+. juli 2022|[0-9]+. august 2019|[0-9]+. august 2020|[0-9]+. august 2021|[0-9]+. august 2022|[0-9]+. september 2019|[0-9]+. september 2020|[0-9]+. september 2021|[0-9]+. september 2022|[0-9]+. oktober 2019|[0-9]+. oktober 2020|[0-9]+. oktober 2021|[0-9]+. oktober 2022|[0-9]+. november 2019|[0-9]+. november 2020|[0-9]+. november 2021|[0-9]+. november 2022|[0-9]+. december 2019|[0-9]+. december 2020|[0-9]+. december 2021")
+
+
+  # Getting month
+  DF$month <- str_extract(article, "januar|februar|marts|april|maj|juni|juli|august|september|oktober|november|december")
+
+
+  x <- str_extract(article, regex("( 2019| 2020| 2021| 2022).*"))
+  DF$journalist <- sub("[0-9]* ord.*", "", x)
+
+
+  # getting the article in clean text - this is used when wanting the dataframe with the article text as well. Should proberly be removed if i want to go back to the early thing...
+  DF$article <- cleanTX
+
+
+
+  return(DF)
+}
+```
+
+
+Sort it in the final dataframe 
+```{r}
+Df_only <- data.frame()
+
+for (article in 1:length(BarselArticles_only)) {
+
+  # Taking one article at a time
+  A <- BarselArticles_only[article]
+
+  # first cleaning the article
+  cleanA <- clean_Text2(A)
+
+  # Then organising in a dataframe
+  row_info <- organiseData(A, cleanA)
+
+  Df_only <- rbind(Df_only, row_info)
+}
+```
+
+Doing it for the "average" article
+```{r}
+Df_averageArticles <- data.frame()
+
+for (articel in 1:length(average_articles)) {
+
+  # Taking one article at a time
+  A <- average_articles[articel]
+
+  # first cleaning the article
+  cleanA <- clean_Text2(A)
+
+  # Then organising in a dataframe
+  row_info <- organiseData(A, cleanA)
+
+  Df_averageArticles <- rbind(Df_averageArticles, row_info)
+}
+
+Df_averageArticles$køn <- "mand"
+# write.csv(finalDf_averageArticles,"/Users/sara/Dropbox/Cognitive Science/Bachelor/Data/average_article.csv")
+```
+
+
+```{r}
+Df_only$Newspaper <- gsub(" ", "", Df_only$Newspaper, fixed = TRUE)
+```
+
+
+```{r}
+write.csv(Df_only, "./data/article_data_withpunct.csv")
+```
+
+QUESTION FOR SARA - What is this file? 
+
+```{r}
+data_journalist <- read.csv("./data/article_data_withjournalist_30:11.csv", sep = ";")
+
+# Removing articles if they are duplicates
+data_journalist <- data_journalist[-c(57, 93, 159, 95, 139, 58, 86, 151, 154, 208, 161, 136), ]
+```
+
+Inserting gender of journalist. Default is "kvinde" as most journalists in the sample are women. Manually changing to "Mand" for all the male journalists.
+
+```{r}
+data_journalist$køn <- "kvinde"
+data_journalist <- data_journalist[c("ID", "Newspaper", "Date", "month", "journalist", "køn", "article")]
+write.csv(data_journalist, "./data/dat_jour_køn.csv")
+```
+
+Reloading the data after manually changiong the genders of journalists:
+
+```{r}
+data_rettet <- read.csv("./data/dat_jour_køn_rettet.csv", sep = ";")
+
+# removing one more article which is a newsoverview
+data_rettet <- data_rettet[-82, ]
+```
+
+```{r}
+barsel_sentences <- data_rettet
+barsel_sentences$merge_index <- c(1:length(barsel_sentences$ID))
+```
+
+Split the articles into sentences
+```{r}
+data_sentences <- NULL
+data_sentences$sentences <- NA
+data_sentences <- as.data.frame(data_sentences)
+data_sentences$merge_index <- NA
+data_sentences <- data.frame(sentences = character(), merge_index = integer())
+
+
+for (text in 1:length(barsel_sentences$article)) {
+
+  # Taking one article at a time
+  text_1 <- barsel_sentences$article[text]
+
+  # dividing the text into sentences
+  sentences <- tokenize_sentences(text_1)
+
+  one_text <- NULL
+  one_text$sentences <- unlist(sentences)
+  one_text$merge_index <- text
+  one_text <- as.data.frame(one_text)
+
+  data_sentences <- rbind(data_sentences, one_text)
+}
+
+barsel_sentences1 <- merge(data_sentences, barsel_sentences)
+
+write.csv(barsel_sentences1, "./data/barsel_sentences")
+```
+
+Now doing the same for the average articles 
+
+```{r}
+average_articles_rettet <- read.csv("./data/average_article_wKJ.csv", sep = ";")
+names(average_articles_rettet)[7] <- "article"
+names(average_articles_rettet)[8] <- "køn"
+
+average_articles_rettet$Newspaper <- str_replace_all(average_articles_rettet$Newspaper, fixed(" "), "")
+```
+
+
+
+```{r}
+Df_only_copy <- average_articles_rettet
+Df_only_copy$merge_index <- c(1:length(average_articles_rettet$ID))
+```
+
+Splitting articles into sentences
+```{r}
+data_sentences <- NULL
+data_sentences$sentences <- NA
+data_sentences <- as.data.frame(data_sentences)
+data_sentences$merge_index <- NA
+data_sentences <- data.frame(sentences = character(), merge_index = integer())
+
+for (text in 1:length(average_articles_rettet$article)) {
+
+  # Taking one article at a time
+  text_1 <- average_articles_rettet$article[text]
+
+  # dividing the text into sentences
+  sentences <- tokenize_sentences(text_1)
+
+  one_text <- NULL
+  one_text$sentences <- unlist(sentences)
+  one_text$merge_index <- text
+  one_text <- as.data.frame(one_text)
+
+  data_sentences <- rbind(data_sentences, one_text)
+}
+
+Df_only_copy <- merge(data_sentences, Df_only_copy)
+```
+
+
+Remove sentences that are irrelevant - like foto by ore something like that....
+```{r}
+Df_only_copy <- Df_only_copy[-c(38, 39, 102, 180, 181, 182, 183, 184, 185, 186, 187, 188, 189, 190, 191, 282, 296, 297, 298, 299, 300, 301, 302, 303, 304, 305, 306, 307, 309, 321:332, 456, 463, 471, 560, 561, 564, 679, 718, 733, 734, 735, 741, 750, 784, 811, 945, 946, 947, 948, 1135, 1136, 1137, 1138, 1215, 1216, 1217, 1218, 1219, 1223, 1379, 1512, 1555, 1589, 1590, 1615, 1616, 1617, 1760, 1761, 1762, 1763, 1909, 1994, 1995, 1996, 1997, 1998, 1999, 2071, 2072, 2973, 2074, 2105, 2135, 2136, 2137, 2141, 2144, 2214, 2215, 2216, 2217, 2220, 2235, 2285:2288, 2429, 2468, 2483, 2498, 2499, 2508, 2525, 2609, 2619, 2620, 2621, 2622, 2664, 2665, 2699, 2711, 2712, 2742, 2743, 2755, 2757, 2758, 2831, 2886:2892, 3007, 3093, 3095, 3196, 3197, 3202, 3203, 3230:3240, 3280, 3321, 3324, 3343, 3402, 3405, 3408, 3413, 3437, 3438, 3439, 3469:3481, 3512, 3533, 3605, 3621, 3672, 3707, 3806:3824, 3827, 3900:3913, 4113, 4114, 4240, 4329, 4330, 4379, 4380, 4519, 4571, 4581, 4754, 4757, 4810:4813, 4830, 4888, 4945:4948, 5053:5062, 5064, 5112, 5115, 5239, 5241, 5265, 5266, 5322, 5323, 5349, 5384, 5413, 5474, 5516, 5573:5582, 5655:5664, 5741, 5749, 5757, 5758, 5795, 5796, 5848, 5866, 5892, 5895, 5898, 5901, 5904, 5907, 5910, 5972, 6033, 6034, 6036, 6037, 6045, 6046, 6138, 6139, 6268, 6412, 6459, 6505:6514, 6526, 6528, 6529, 6545, 6547, 6548, 6575, 6577, 6649:6658, 6689, 6720, 6764, 6807:6810, 6871, 6882, 6899, 6900, 6907, 6909, 6916, 6937, 6974, 7027, 7064, 7070, 7071, 7138, 7163, 7190, 7255, 7313, 7333, 7385, 7386, 7406, 7451, 7551, 7559), ]
+```
+remove irrelevant things for the average articles
+```{r}
+for (row in c(16, 226, 254, 312, 597, 864, 882, 1217, 1450, 1477, 1577, 1593, 1728, 1903, 1963, 2194, 2196, 2341, 2382, 2447, 2483, 2709, 2837, 2934, 2948, 3154 3339, 3406, 3513, 3805, 3912, 4086, 4104, 4580, 4632, 4632, 4653, 4692, 4757, 4860, 4880, 4942)){
+  Df_only_copy$sentences[row] <- sub(".*Infomedia", "", Df_only_copy$sentences[row])
+}
+```
+
+```{r}
+Df_only_copy$sentences[731] <- sub(".*-", "", Df_only_copy$sentences[731])
+```
+
+removing sentences:
+```{r}
+Df_only_copy <- Df_only_copy[-c(21, 31, 48, 102, 107, 177, 178, 179, 192, 203, 234, 260, 294, 314, 317, 324, 364, 454, 471, 473, 525:532, 538, 563, 575, 577, 578, 596, 597, 635:637, 641, 668, 669, 716:718, 720, 743, 822, 824, 826, 830, 835, 837, 840, 843, 849, 868, 959, 960, 964, 965, 971, 972, 977, 981, 988:990, 998, 1002, 1027, 1167:1171, 1201, 1217, 1219, 1369, 1371, 1420, 1484, 1539, 1563, 1580, 1623, 1640, 1641, 1664, 1884, 1891, 1909, 1949, 1975, 2015, 2053, 2107, 2179, 2235, 2236, 2253, 2303, 2329, 2349, 2364, 2460, 2492, 2507, 2517, 2510, 2688, 2754, 2812, 2813, 2845, 2857, 2889, 2939, 2957, 3039, 3042, 3044, 3097, 3141, 3161, 3249, 3261, 3262, 3284, 3353, 3384, 3440, 3460, 3482, 3497, 3521, 3538, 3539, 3570, 3581, 3592, 3630, 3635, 3639, 3684, 3690, 3733, 3735, 3820, 3899, 3913, 3948, 4001, 4002, 4043, 4069, 4087, 4118, 4197, 4199, 4265, 4268, 4320, 4397, 4398, 4452, 4421:4424, 4521, 4529, 4556, 4558, 4560, 4584, 4639, 4671, 4759, 4784, 4846, 4866, 4867, 4896:4898, 4929, 4930, 4979), ]
+```
+
+
+```{r}
+mangler <- Df_only_copy %>% filter(merge_index == 182)
+write.csv(mangler, "./data/average_article_sentences_mangler.csv")
+```
+
+
+```{r}
+write.csv(Df_only_copy, "./data/average_article_sentences_.csv")
+```
+
+
+Random numbers for chossing the average articles 
+
+```{r}
+r_numbers <- c(406411, 1338716, 1371150, 1152438, 322855, 1030241, 334762, 1539299, 14512, 591564, 948670, 181437, 393799, 1391890, 888662, 1290514, 39041, 1181234, 1128987, 470143, 1089451, 1112980, 1191940, 1492159, 450180, 1104478, 103138, 803299, 315193, 464530, 953842, 1181826, 947331, 604877, 1070054, 117439, 1526242, 3807, 919914, 381185, 1303707, 1445726, 1423683, 1298421, 1060283, 794474, 755642, 184877, 627150, 987227, 507376, 1400125, 1576313, 408755, 268817, 370492, 64778, 629125, 250984, 116754, 1523356, 337949, 792281, 548980, 1272784, 1055815, 1185466, 973589, 286666, 101614, 1103888, 1335286, 1188193, 992475, 407996, 360884, 1441141, 206973, 485816, 360184, 488501, 725703, 290726, 298179, 179788, 389225, 471067, 195739, 113414, 1346363, 752285, 31907, 593133, 945512, 344624, 787556, 284418, 209610, 767755, 162603, 1997, 384596, 465050, 517567, 1221328, 1328636, 652099, 596120, 1367359, 1416385, 1145531, 1556104, 1561743, 441364, 143784, 1507036, 357611, 456587, 1563300, 597085, 997739, 1540658, 760325, 53542, 343036, 1502919, 221134, 807592, 534981, 788161, 1555005, 1095283, 1001345, 248749, 1319109, 634899, 990745, 1255144, 131266, 1418013, 897024, 376700, 1350907, 581146, 667008, 757335, 1537972, 1422075, 1144546, 64493, 32531, 1074745, 588514, 745106, 438789, 1424189, 1488953, 786487, 671631, 584886, 788263, 165146, 459822, 929687, 936605, 1015739, 773666, 1560943, 1383927, 320256, 1427779, 1206753, 1547603, 31230, 1263661, 991642, 207632, 1273207, 931202, 750447, 466111, 623448, 202902, 195210, 973025, 1152125, 259868, 751558, 24414, 1068331, 347473, 225414, 1331668, 177389, 1505239, 625458, 805354, 667510, 342024, 771152, 423901, 1431723, 10, 1)
+```
+
+```{r}
+sort(r_numbers)
+```
+
+
+
+
