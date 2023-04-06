@@ -5,4 +5,4 @@ The data from the articles is not available for sharing due to restrictions on d
 ## Steps to reproduce the analysis
 1. Follow the instructions and code in *data_cleaning/Articles_to_csv.Rmd*. This converts the text in the PDFs of articles and converts them to a .csv. 
 2. Run *sentiment_analysis.py* to use the BERT_Tone model to classify sentences as either negative, neutral or positive.
-3. 
+3. Run *clean_data.py* to process and clean the tokens for articles

@@ -4,14 +4,6 @@ import spacy
 from tqdm import tqdm
 from constants import LIST_OF_RIGHT, LIST_OF_LEFT, LIST_OF_STOPPERS, MAPPING
 
-# load the data
-d = pd.read_csv("data/barsel_sentiment.csv", sep=";")
-
-# calculate the number of words per sentence
-d["length"] = d["sentences"].apply(lambda x: len(x.split()))
-# exclude sentences of less than three words
-d = d[d["length"] > 2].reset_index(drop=True)
-
 
 def get_pol_orientation(string):
     if string in LIST_OF_LEFT:
@@ -22,7 +14,30 @@ def get_pol_orientation(string):
         return None
 
 
+# load the data
+d = pd.read_csv("data/barsel_sentiment.csv", sep=";")
+controls = pd.read_csv("data/control_sentiment.csv", sep=";")
+
+
+# calculate the number of words per sentence
+d["length"] = d["sentences"].apply(lambda x: len(x.split()))
+# exclude sentences of less than three words
+d = d[d["length"] > 2].reset_index(drop=True)
+
+controls["length"] = controls["sentences"].apply(lambda x: len(x.split()))
+controls = controls[controls["length"] > 2].reset_index(drop=True)
+
+controls["Political_Orientation"] = controls["Newspaper"].apply(get_pol_orientation)
 d["Political_Oirentation"] = d["Newspaper"].apply(get_pol_orientation)
+controls = controls[
+    [
+        x
+        for x in controls.columns
+        if x not in ["Unnamed: 0", "merge_index", "X", "length"]
+    ]
+]
+
+controls.to_csv("data/control_data.csv", index=False)
 
 # loop through and take text before the list of stoppers
 for stopper in LIST_OF_STOPPERS:

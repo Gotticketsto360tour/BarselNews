@@ -17,7 +17,7 @@ classifier = load_bert_tone_model()
 def sentiment_analysis(comment: str):
     probs = classifier.predict_proba(comment)
     sentiment, angle = probs[0], probs[1]
-    return sentiment[0], sentiment[1], sentiment[2], angle[0], angle[1]
+    return (sentiment[0], sentiment[1], sentiment[2], angle[0], angle[1])
 
 
 for data in [barsel_data, control_data]:
@@ -27,7 +27,7 @@ for data in [barsel_data, control_data]:
         data["negative_prob"],
         data["objective_prob"],
         data["subjective_prob"],
-    ) = data["sentences"].apply(sentiment_analysis)
+    ) = zip(*data["sentences"].apply(sentiment_analysis))
 
 barsel_data.to_csv("data/barsel_sentiment.csv", sep=";", index=False)
 control_data.to_csv("data/control_sentiment.csv", sep=";", index=False)
