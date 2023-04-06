@@ -21,6 +21,7 @@ def get_pol_orientation(string):
     else:
         return None
 
+
 d["Political_Oirentation"] = d["Newspaper"].apply(get_pol_orientation)
 
 # loop through and take text before the list of stoppers
