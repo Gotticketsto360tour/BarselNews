@@ -1,0 +1,93 @@
+```{r}
+library(tidyverse) # general data wrangling
+# Set working directory to file location
+setwd(dirname(rstudioapi::getSourceEditorContext()$path))
+
+# Load the data (preprocessed by Sara and Mikkel)
+d_long <- read_csv("data/LDA/preprocessed_words.csv") %>%
+            mutate(ID = merge_index) %>%
+            select(-c(merge_index, X, sentences, Newspaper, vedtagelse,
+                    Date, month, journalist, article, category, tokens,
+                    positive_prob, neutral_prob, negative_prob, objective_prob, subjective_prob))
+```
+
+# Format the data to fit the Stan model
+```{r}
+# check n words
+length(d_long$word) # we have 56834 word instances
+length(unique(d_long$word)) # for 7553 unique words
+
+# create dictionary
+dic <- tibble(word = (d_long$word)) %>%
+    group_by(word) %>%
+    # let's calculate also how often words appear in corpus
+    summarise(n = n()) %>%
+    arrange(word) %>% # set to alphabetical order
+    # create numerical id
+    mutate(word_id = c(1:length(unique(d_long
+$word)))) %>%
+    select(word_id, word, n)
+
+# Check distribution of word counts
+dic %>%
+    arrange(-n) %>%
+    ggplot(aes(seq(1,7553,1), n)) +
+    geom_line()
+
+# we also want to count in how many documents words appear in
+dic <- d_long %>%
+    group_by(X, word) %>%
+    summarise(n=n()) %>%
+    ungroup() %>% group_by(word) %>%
+    summarise(n_doc=n())  %>%
+    right_join(dic)  %>%
+    select(word_id, word, n, n_doc)
+```
+
+# Filter the dictionary
+```{r}
+# Create a list of manually selected words to delete
+#### DONE BEFORE IN PYTHON #####
+
+# Check proportions of top words to estimate cutoff of the lowpass filter
+## A cut off of 300 gives:
+sum(filter(dic, n > 300)$n)/sum(dic$n)*100 # about 21% of all words
+length(filter(dic, n > 300)$word)/length(dic$word)*100 # for 0.2% of possible words
+
+
+# Check proportion of words appearing in few documents to estimate cutoff of the highpass filter
+## A cut off of less than 5 documents gives:
+sum(filter(dic, n_doc < 5)$n)/sum(dic$n)*100 # 20% of all words too
+length(filter(dic, n_doc < 5)$word)/length(dic$word)*100 # for about 83% of possible words
+
+
+# Filter based on frequency (overall or documents)
+dic_model <- dic %>%
+## For example, Let's take away words that appear more than 300 times
+    filter(n < 300) %>%
+## And words that appear in less than 5 documents
+    filter(n_doc >= 5) %>%
+    # recalculate id for each words
+    mutate(word_id = row_number(word))
+
+# How does our curve look like?
+dic_model %>%
+    arrange(-n) %>%
+    ggplot(aes(seq(1,length(dic_model$word),1), n)) +
+    geom_line()
+
+# then add dictionary info to main df to create the filtered dataset for the model
+d_model <- d_long %>%
+    inner_join(dic_model)
+
+# check n words
+length(d_model$word) # we have 32354 word instances
+length(unique(d_model$word)) # for 1301 unique words
+
+# Save the dictionary with identifyable info' just for us
+write_csv(dic_model, "data/LDA/full_dictionary.csv")
+
+# Save versions of the data without identifyable info for repo
+write_csv(select(dic_model, -word), "data/LDA/Analysis Ready/dictionary.csv")
+write_csv(select(d_model, -word), "data/LDA/Analysis Ready/corpus.csv")
+```

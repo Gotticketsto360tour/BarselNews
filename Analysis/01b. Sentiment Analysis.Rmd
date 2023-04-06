@@ -1,0 +1,401 @@
+```{r}
+library(tidyverse) # general data wrangling
+library(patchwork) # plot composition
+library(R2jags) # modelling
+library(gganimate) # animating plots
+```
+
+# Barsel news analysis
+
+## Run the model for barsel news
+```{r}
+# Load the data
+sentences <- read_csv("data/Sentiment Analysis/Analysis Ready/barsel_sentence_data.csv")
+article <- read_csv("data/Sentiment Analysis/Analysis Ready/barsel_article_data.csv")
+# How many articles for each group
+group_table <- article %>%
+    unique() %>%
+    group_by(gender,politics) %>%
+    summarise(ng=n())
+
+# Structure the data to pass it on to JAGS
+data_list <- list(
+    y = sentences,
+    Na = max(article$Na),
+    A = article$Na,
+    G = unique(select(article, c(Na, group)))$group,
+    ng = unique(select(left_join(article, group_table), c(Na, ng)))$ng,
+    alpha = rep(1, 3) # prior
+)
+
+# Define parameters of interest
+params = c("Ea", "Eg", "delta_pol", "delta_gen")
+# Run the model
+samples.base <- jags.parallel(data_list, inits=NULL, params, model.file ="model/Dirichlet all the way down.bugs",
+                n.chains=12, n.iter=10000, n.burnin=2500, n.thin=1)# summary
+# Show results
+samples.base
+```
+
+## Represent the relsults: Check group and difference estimates
+```{r}
+# Save the results of the model
+s <- tibble(data.frame(as.matrix(as.mcmc(samples.base))))
+
+## Extract expected value for each group (1=leftmen, 2=rightmen, 3=leftwomen, 4=rightwomen)
+eg <-s  %>%
+    select(contains("Eg")) %>%
+    pivot_longer(contains("Eg")) %>%
+    separate(name, into=c("variable", "group", "sentiment")) %>%
+    mutate(gender = ifelse(group %in% c(1,2), "male journalist", "female journalist"),
+            politics = ifelse(group %in% c(1,3), "left-oriented", "right-oriented"))
+# Plot them
+eg %>%
+    mutate(sentiment=case_when(sentiment == 1 ~ "positive",
+                                sentiment == 2 ~ "neutral",
+                                sentiment == 3 ~ "negative")) %>%
+    ggplot(aes(sentiment, value, fill=politics)) +
+    geom_violin(alpha=.3) + 
+    geom_violin(alpha=.8) +
+    facet_grid(politics~gender) +
+    scale_fill_manual(name="Politics", values=c("firebrick3", "blue")) +
+    theme_bw() + ylim(0, 1) + 
+    ggtitle("A.") -> eg_barsel
+eg_barsel
+
+# Extract delta values
+deltas <- s  %>%
+    select(contains("delta")) %>%
+    pivot_longer(cols=contains("delta")) %>%
+    separate(name, c("variable","type", "sent")) %>%
+    mutate(sentiment = case_when(sent == 1 ~ "positive",
+                                    sent == 2 ~ "neutral",
+                                    sent == 3 ~ "negative")
+    )  %>%
+    mutate(type = ifelse(type == "gen", "gender difference", "political difference")) %>%
+    select(type, sentiment, value)
+## delta plotting
+deltas  %>%
+    ggplot() +
+    geom_density(aes(value, color= sentiment),size=1.2) +
+    geom_vline(xintercept=0, color="red")+
+    facet_grid(vars(rows=type)) +
+    xlim(-.2, .2) + theme_bw() +
+    scale_color_viridis_d(begin=.1,end=.9)
+
+## Plotting with priors
+# Prior on individual groups
+priors_eg1 <- LaplacesDemon::rdirichlet(100000, c(1, 1, 1))
+priors_eg2 <- LaplacesDemon::rdirichlet(100000, c(1, 1, 1))
+priors_eg3 <- LaplacesDemon::rdirichlet(100000, c(1, 1, 1))
+priors_eg4 <- LaplacesDemon::rdirichlet(100000, c(1, 1, 1))
+# Prior on joint probabilities
+priors_p1 <- (priors_eg1 + priors_eg2)/(rowSums(priors_eg1) + rowSums(priors_eg2))
+priors_p2 <- (priors_eg3 + priors_eg4)/(rowSums(priors_eg3) + rowSums(priors_eg4))
+# Prior on difference
+priors <- priors_p1 - priors_p2
+priors <- tibble(positive=priors[,1], neutral=priors[,2], negative=priors[,3])  %>%
+                    pivot_longer(everything(), names_to = "sentiment")
+# Plot posterior difference with prior difference
+ggplot() +
+    geom_vline(xintercept = 0, color="#666666", linetype=3) +
+    geom_density(data=priors, aes(value), color="red",size=1, linetype=2, alpha=.9) +
+    geom_density(data=deltas, aes(value, color= sentiment)) +
+    facet_grid(.~type) +
+    theme_bw() + xlim(-.6,.6) +
+    scale_color_viridis_d(begin=.1,end=.9) +
+    ggtitle("A.") -> delta_barsel
+delta_barsel
+```
+
+## Visualise the data as a triangle
+```{r}
+
+mutate(sentences, index=row_number()) %>%
+    left_join(mutate(article, index=row_number())) %>%
+    ggplot(aes(negative_prob, positive_prob)) +
+    geom_point(aes(color=neutral_prob), size=.4) +
+    geom_density2d_filled(alpha=.3) +
+    facet_grid(politics~gender) +
+    scale_color_distiller(palette=14, direction=1) +
+    theme_minimal()
+
+# some animation at the article level to visualise diversity
+#mutate(sentences, index=row_number()) %>%
+#    left_join(mutate(article, index=row_number())) %>%
+#    ggplot(aes(negative_prob, positive_prob)) +
+#    geom_point(aes(color=neutral_prob)) +
+#    scale_color_distiller(palette=14, direction=1) +
+#    theme_minimal() +
+#     transition_states(
+#    Na,
+#    transition_length = 5,
+#    state_length = 3
+#  ) +
+#  enter_fade() + 
+#  exit_shrink() +
+#  ease_aes('sine-in-out')
+#
+#anim_save("bob.gif", animation = last_animation())
+```
+
+## Sampling from the posterior
+```{r}
+post_article <-
+    tibble(
+            Na = rep(seq(1,118),3),
+            sent = rep(c("positive", "neutral", "negative"), each=118),
+            # /!\ only using the mean of individual articles estimates
+            mean = samples.base$BUGSoutput$summary[1:(118*3)],
+    ) %>%
+    group_by(Na) %>%
+    pivot_wider(names_from = sent, values_from = mean) %>%
+    # add gender info
+    left_join(article %>%
+        group_by(Na) %>%
+        summarise(n=n(), gender, politics)) %>% 
+    unique()
+
+# generate the sentences
+sim <- tibble(Na=c(NA), X1=c(NA), X2=c(NA), X3=c(NA))
+for (a in post_article$Na)
+{
+    sim <- sim %>%
+        bind_rows(
+            data.frame(
+                Na=a,
+                gender=post_article$gender[a],
+                politics=post_article$politics[a],
+                LaplacesDemon::rdirichlet(post_article$n[a], c(post_article$positive[a], post_article$neutral[a], post_article$negative[a]))
+                )
+            )
+}
+sim <- filter(sim, !is.na(Na))
+# plot
+sim %>%
+    ggplot(aes(X3, X1)) +
+    geom_point(aes(color=X2), alpha=.9, size=.3) +
+    geom_density2d_filled(alpha=.3) +
+    facet_grid(politics~gender) +
+    scale_color_distiller(palette=14, direction=1) +
+    theme_minimal()
+```
+
+
+# Control analysis
+
+# Run the dirichlet all the way down model on control data
+```{r}
+# Load the data
+sentences <- read_csv("data/Sentiment Analysis/Analysis Ready/control_sentence_data.csv")
+article <- read_csv("data/Sentiment Analysis/Analysis Ready/control_article_data.csv")
+# How many articles for each group
+group_table_control <- article_control %>%
+    unique() %>%
+    group_by(gender, politics) %>%
+    summarise(ng=n())
+
+# data list
+data_list <- list(
+    y = sentences_control,
+    Na = max(article_control$Na),
+    A = article_control$Na,
+    G = unique(select(article_control, c(Na, group)))$group,
+    ng = unique(select(left_join(article_control, group_table_control), c(Na, ng)))$ng,
+    alpha = rep(1, 3) # prior
+)
+
+## Parameters of interest
+params = c("Ea", "Eg", "delta_pol", "delta_gen")
+# Run
+samples.control <- jags.parallel(data_list, inits=NULL, params, model.file ="model/Dirichlet all the way down.bugs",
+                n.chains=12, n.iter=10000, n.burnin=2500, n.thin=1)# summary
+# show summary results
+samples.control
+```
+
+# Represent the relsults of control analysis: Check group and difference estimates
+```{r}
+# Save the results
+s <- tibble(data.frame(as.matrix(as.mcmc(samples.control))))
+
+## Expected value for each group (1=leftmen, 2=rightmen, 3=leftwomen, 4=rightwomen)
+eg <-s  %>%
+    select(contains("Eg")) %>%
+    pivot_longer(contains("Eg")) %>%
+    separate(name, into=c("variable", "group", "sentiment")) %>%
+    mutate(gender = ifelse(group %in% c(1,2), "man", "woman"),
+            politics = ifelse(group %in% c(1,3), "left", "right"))
+# Plot
+eg %>%
+    mutate(sentiment=case_when(sentiment == 1 ~ "positive",
+                                sentiment == 2 ~ "neutral",
+                                sentiment == 3 ~ "negative")) %>%
+    ggplot(aes(sentiment, value, fill=politics)) +
+    geom_violin(alpha=.3) + 
+    geom_violin(alpha=.8) +
+    facet_grid(politics~gender) +
+    scale_fill_manual(name="Politics", values=c("firebrick3", "blue")) +
+    theme_bw() +
+    ylim(0, 1)
+
+# extract delta parameters
+deltas <- s  %>%
+    select(contains("delta")) %>%
+    pivot_longer(cols=contains("delta")) %>%
+    separate(name, c("variable","type", "sent")) %>%
+    mutate(sentiment = case_when(sent == 1 ~ "positive",
+                                    sent == 2 ~ "neutral",
+                                    sent == 3 ~ "negative")
+    )  %>%
+    mutate(type = ifelse(type == "gen", "gender difference", "political difference")) %>%
+    select(type, sentiment, value)
+
+## Plotting with priors
+# Prior on individual groups
+priors_eg1 <- LaplacesDemon::rdirichlet(100000, c(1, 1, 1))
+priors_eg2 <- LaplacesDemon::rdirichlet(100000, c(1, 1, 1))
+priors_eg3 <- LaplacesDemon::rdirichlet(100000, c(1, 1, 1))
+priors_eg4 <- LaplacesDemon::rdirichlet(100000, c(1, 1, 1))
+# Prior on joint probabilities
+priors_p1 <- (priors_eg1 + priors_eg2)/(rowSums(priors_eg1) + rowSums(priors_eg2))
+priors_p2 <- (priors_eg3 + priors_eg4)/(rowSums(priors_eg3) + rowSums(priors_eg4))
+# Prior on difference
+priors <- priors_p1 - priors_p2
+priors <- tibble(positive=priors[,1], neutral=priors[,2], negative=priors[,3])  %>%
+                    pivot_longer(everything(), names_to = "sentiment")
+# Plot posterior difference with prior difference
+ggplot() +
+    geom_density(data=priors, aes(value), color="red",size=1, linetype=2, alpha=.9) +
+    geom_density(data=deltas, aes(value, color= sentiment)) +
+    facet_grid(vars(rows=type)) +
+    theme_bw() + xlim(-.6,.6) +
+    scale_color_viridis_d(begin=.1,end=.9)
+```
+
+
+# Test a difference between Barsel and Control
+```{r}
+# Load the data
+sentences <- read_csv("data/Sentiment Analysis/Analysis Ready/comparaison_sentence_data.csv")
+article <- read_csv("data/Sentiment Analysis/Analysis Ready/comparaison_article_data.csv")
+# How many articles for each group
+group_table_all <- article_all %>%
+    unique() %>%
+    group_by(group) %>%
+    summarise(ng=n())
+
+# Format for the model
+data_list <- list(
+    y = sentences_all,
+    Na = max(article_all$Na),
+    A = article_all$Na,
+    G = unique(select(article_all, c(Na, group)))$group,
+    ng = unique(select(left_join(article_all, group_table_all), c(Na, ng)))$ng,
+    alpha = rep(1, 3) # prior
+)
+
+## Parameters choice
+params = c("Ea", "Eg", "delta_control")
+# Run
+samples.all <- jags.parallel(data_list, inits=NULL, params, model.file ="model/Compare with control.bugs",
+                n.chains=12, n.iter=10000, n.burnin=2500, n.thin=1)
+# summary
+samples.all
+
+
+```
+## Plot the results
+```{r}
+# Save the results
+s <- tibble(data.frame(as.matrix(as.mcmc(samples.all))))
+
+## Expected value for each group (1=leftmen, 2=rightmen, 3=leftwomen, 4=rightwomen)
+eg <-s  %>%
+    select(contains("Eg")) %>%
+    pivot_longer(contains("Eg")) %>%
+    separate(name, into=c("variable", "group", "sentiment")) %>%
+    mutate(group = ifelse(group == 1, "leave reform news", "control news"))
+# Plot
+eg %>%
+    mutate(sentiment=case_when(sentiment == 1 ~ "positive",
+                                sentiment == 2 ~ "neutral",
+                                sentiment == 3 ~ "negative")) %>%
+    ggplot(aes(sentiment, value, fill=group)) +
+    geom_violin(alpha=.8) +
+    #facet_wrap(~group) +
+    scale_fill_manual(name="Group", values=c("#d0becf", "#000000")) +
+    theme_bw() + ylim(0, 1) +
+    ggtitle("B.") -> eg_control
+eg_control
+
+# extract delta parameters
+deltas <- s  %>%
+    select(contains("delta")) %>%
+    pivot_longer(cols=contains("delta")) %>%
+    separate(name, c("variable","type", "sent")) %>%
+    mutate(sentiment = case_when(sent == 1 ~ "positive",
+                                    sent == 2 ~ "neutral",
+                                    sent == 3 ~ "negative")
+    ) %>%
+    select(type, sentiment, value)
+
+## Plotting with priors
+# Prior on individual groups
+priors_eg1 <- LaplacesDemon::rdirichlet(100000, c(1, 1, 1))
+priors_eg2 <- LaplacesDemon::rdirichlet(100000, c(1, 1, 1))
+priors_eg3 <- LaplacesDemon::rdirichlet(100000, c(1, 1, 1))
+priors_eg4 <- LaplacesDemon::rdirichlet(100000, c(1, 1, 1))
+# Prior on joint probabilities
+priors_p1 <- (priors_eg1 + priors_eg2)/(rowSums(priors_eg1) + rowSums(priors_eg2))
+priors_p2 <- (priors_eg3 + priors_eg4)/(rowSums(priors_eg3) + rowSums(priors_eg4))
+# Prior on difference
+priors <- priors_p1 - priors_p2
+priors <- tibble(positive=priors[,1], neutral=priors[,2], negative=priors[,3])  %>%
+                    pivot_longer(everything(), names_to = "sentiment")
+# Plot posterior difference with prior difference
+ggplot() +
+    geom_vline(xintercept = 0, color="#666666", linetype=3) +
+    geom_density(data=priors, aes(value), color="red",size=1, linetype=2, alpha=.9) +
+    geom_density(data=deltas, aes(value, color= sentiment)) +
+    theme_bw() + xlim(-.6, .6) +
+    scale_color_viridis_d(begin=.1, end=.9) +
+    ggtitle("B.")-> delta_control
+delta_control
+```
+
+
+## Compose patched up plots for the article
+```{r}
+# Expected values estimates
+layout <- "
+AAA##
+AAABB
+AAABB
+AAABB
+AAABB
+AAABB
+AAABB
+AAABB
+AAABB
+AAABB
+AAA##
+"
+eg_barsel + eg_control +
+    plot_layout(design=layout)
+
+# differences
+layout <- "
+AAAAAAAAAAAA
+AAAAAAAAAAAA
+AAAAAAAAAAAA
+AAAAAAAAAAAA
+AAAAAAAAAAAA
+#BBBBBBBBBB#
+#BBBBBBBBBB#
+#BBBBBBBBBB#
+#BBBBBBBBBB#
+#BBBBBBBBBB#"
+delta_barsel / delta_control +
+    plot_layout(design=layout)
+```

@@ -1,0 +1,257 @@
+```{r}
+library(tidyverse) # general data wrangling
+library(cmdstanr) # modelling
+library(bayesplot) # for the raincloudplot
+# Set working directory to file location
+setwd(dirname(rstudioapi::getSourceEditorContext()$path))
+
+dic_model <- read_csv("data/LDA/Analysis Ready/dictionary.csv")
+d_model <- read_csv("data/LDA/Analysis Ready/corpus.csv")
+
+# Compile the LDA model
+LDAvar <- cmdstan_model(file.path("model/LDA.stan"), cpp_options = list(stan_threads = TRUE))
+#LDA <- cmdstan_model(file.path("model/LDA.stan"))
+
+```
+
+# Fit the model
+```{r}
+# define the data to use
+## Let's choose number of topics here
+n_t = 2
+
+## Then create a list
+data_list <- 
+    list(
+        K = n_t, # number of topics
+        V = length(unique(d_model$word_id)), # number of unique words
+        M = length(unique(d_model$ID)), # number of documents
+        N = length(d_model$word_id), # total number of observations
+        w = d_model$word_id, # ordered observation
+        doc = d_model$ID, # corresponding document of observation
+        alpha = rep(1, n_t), # flat dirichlet prior on topic
+        beta = rep(1, length(unique(d_model$word_id))) # flat dirichlet prior on words
+    )
+## fit the model to the data using variational Bayes (much faster than sampling)
+fit <- LDAvar$variational(
+    data = data_list, # the data
+    seed = 1995, # Some seed for reproducibility
+    algorithm = "meanfield",
+    threads = 8,
+    iter = 10000,
+    output_samples = 10000
+)
+
+# For MCMC sampling (should take around 10h)
+#fit <- LDA$sample(
+#  data = data_list, # the data
+#  seed = 1995, # Some seed for reproducibility
+#  iter_warmup = 2500,
+#  iter_sampling = 10000,
+#  refresh=1000,
+#  chains = 8,
+#  parallel_chains = 8
+#)
+
+# save the results from model fit
+theta <- fit$summary("theta") # topic probabilities over documents
+phi <- fit$summary("phi") # word probabilities over topics
+
+# topic distribution over documents
+## What's the probability of each topic within each document?
+## I interpret it more as "How much of a given topic is in a document"?
+d_dist <- theta  %>%
+    separate(variable, into=c("ID", "topic"), sep=",") %>%
+    mutate(ID =parse_number(ID),
+            topic = parse_number(topic)) %>%
+    arrange(ID, topic)  %>% # ID refers to the document ID as defined above
+    arrange(mean) %>%
+    mutate(index_m = row_number())
+
+```
+
+# Calculate
+```{r}
+# Calculate mean of means
+d_dist %>%
+# add info about political alignment of each article
+    left_join(summarise(group_by(d_model, ID), Political_Orientation)) %>%
+    unique() %>%
+    group_by(Political_Orientation, topic) %>%
+    summarise(mean(mean), sd(mean))
+
+# How many article per political group were more likely to be of topic 1 or 2
+
+## LEFT
+d_dist %>%
+# add info about political alignment of each article
+    left_join(summarise(group_by(d_model, ID), Political_Orientation)) %>%
+    unique() %>%
+    filter(Political_Orientation == "Left-winged") %>%
+    filter(topic == 1 & mean > .5) %>%
+    summarise(n=n()) # 24
+d_dist %>%
+# add info about political alignment of each article
+    left_join(summarise(group_by(d_model, ID), Political_Orientation)) %>%
+    unique() %>%
+    filter(Political_Orientation == "Left-winged") %>%
+    filter(topic == 2 & mean > .5) %>%
+    summarise(n=n()) # 43
+
+# Topic 2 is more likely on the left
+(43/(43+24))*100
+
+## RIGHT
+d_dist %>%
+# add info about political alignment of each article
+    left_join(summarise(group_by(d_model, ID), Political_Orientation)) %>%
+    unique() %>%
+    filter(Political_Orientation == "Right-winged") %>%
+    filter(topic == 1 & mean > .5) %>%
+    summarise(n=n()) # 40
+d_dist %>%
+# add info about political alignment of each article
+    left_join(summarise(group_by(d_model, ID), Political_Orientation)) %>%
+    unique() %>%
+    filter(Political_Orientation == "Right-winged") %>%
+    filter(topic == 2 & mean > .5) %>%
+    summarise(n=n()) # 47
+
+# Topic 1 is more likely on the left
+(47/(40+47))*100
+```
+
+```{r}
+## Now we can plot:
+### What is the mean probability of each topic within each document
+d_dist  %>%
+    mutate(topic = factor(topic))  %>%
+    ggplot(aes(topic, mean, color=topic)) +
+    geom_point(alpha=1) +
+    geom_errorbar(aes(ymin=mean-sd, max=mean+sd), width = 0.2) +
+    facet_wrap(~ID) + 
+    theme_bw() + scale_colour_brewer(type="qual",palette=3) +
+    theme(strip.text.x = element_text(size = 6),
+        axis.text.y = element_text(size=6))
+
+```
+
+```{r}
+## And what about the topic distribution across left and right wing documents?
+d_dist  %>%
+    # add info about political alignment of each article
+    left_join(summarise(group_by(d_model, ID), Political_Orientation)) %>%
+    unique() %>%
+    filter(topic == 2 & !is.na(Political_Orientation)) %>%
+    ggplot(aes(mean, fill=Political_Orientation)) +
+    geom_density(alpha=.5) + 
+    theme_minimal() +
+    scale_fill_manual(values=c("firebrick3","blue")) +
+    xlab("Mean probability of Topic 2 in article")
+## And what about the topic distribution across gender of writers?
+d_dist %>%
+    left_join(summarise(group_by(d_model, ID), Political_Orientation, køn)) %>%
+    unique() %>%
+    filter(!(køn %in% c("Begge", "Ingen"))) %>%
+    filter(!is.na(Political_Orientation)) %>%
+    filter(topic==2) %>%
+    #mutate(ID = rep(c(1,1), 59)) %>%
+    ggplot(aes(mean, fill=Political_Orientation)) +
+    geom_density(alpha=.5) + 
+    theme_minimal() + facet_grid(køn~1) +
+    scale_fill_manual(values=c("firebrick3","blue")) +
+    xlab("Mean probability of Topic 2 in article")
+
+
+## Raincloud plot
+d_dist  %>%
+    left_join(summarise(group_by(d_model, ID), Political_Orientation, køn)) %>%
+    unique() %>%
+    filter(!(køn %in% c("Begge", "Ingen"))) %>%
+    mutate(gender = ifelse(køn == "kvinde", "female journalist", "male journalist")) %>%
+    filter(!is.na(Political_Orientation)) %>%
+    mutate(Politics = ifelse(Political_Orientation == "Left-winged", "left-oriented", "right-oriented")) %>%
+    filter(topic==2) %>%
+    #mutate(ID = rep(c(1,1), 59)) %>%
+    ggplot(aes(Politics, mean, fill=Politics)) +
+    # add half-violin from {ggdist} package
+    ggdist::stat_halfeye( alpha=.7,
+        # adjust bandwidth
+        adjust = 1,
+        # move to the right
+        justification = -0.15,
+        # remove the slub interval
+        .width = 0,
+        point_colour = NA) +
+    geom_boxplot(width = 0.15, alpha = 0.7, outlier.alpha = 0) +
+    ggdist::stat_dots(
+        # ploting on left side
+        side = "left", stroke=0,linewidth=0.05,
+        # adjusting position
+        justification = 1.1,
+        # adjust grouping (binning) of observations
+        binwidth = 0.01) +
+    facet_grid(.~gender) +
+    scale_x_discrete(limits = rev) +
+    coord_flip()+
+    theme_bw() + theme(axis.title.y = element_blank(), axis.text.y=element_blank()) +
+     scale_fill_manual(values=c("firebrick3","blue")) +
+    ylab("Mean probability of Topic 2 in article") +
+    xlab("Politics")
+
+```
+
+# Words in Topic
+```{r}
+# Quick summary of gender*political party
+s<-d_model %>%
+    select(ID, køn, Political_Orientation) %>%
+    unique() %>%
+    filter(!(køn %in% c("Begge", "Ingen"))) %>%
+    group_by(køn, Political_Orientation) %>%
+    summarise(n())
+
+# work on making word distribution over topic intepretable
+t_dist <- phi %>%
+    separate(variable, into=c("topic", "word_id"), sep=",") %>%
+    mutate(topic =parse_number(topic),
+            word_id = parse_number(word_id)) %>%
+    # add the actual word to each word id
+    left_join(dic_model) %>%
+    # lets focus on mean estimate
+    select(topic, word_id, mean) %>%
+    arrange(topic, -mean)# order by topic and probability within topic
+
+# Plot the main words for each topic
+t_dist  %>%
+    group_by(topic) %>%
+    arrange(-mean) %>%
+    slice_head(n=15) %>% # controls how many words are seen in the chart
+    # use the tidytext function reorded_within to have a neat bar chart
+    ggplot(aes(tidytext::reorder_within(topic, -mean, word_id, sep="."), mean)) +
+    geom_bar(stat="identity", aes(fill=factor(topic))) +
+    facet_wrap(~topic, scales="free_x") +
+    scale_x_discrete(guide = guide_axis(n.dodge=1, angle=30))+
+    theme_minimal() +
+    scale_fill_manual(name="Topic", values=c("blue", "firebrick3")) +
+    xlab("15 most likely words per topic")
+
+
+
+### ONLY IF YOU HAVE ACCESS TO THE DICTIONARY CAN YOU DEANONYMISE
+# Plot the main words for each topic
+t_dist  %>%
+    left_join(select(read_csv("data/LDA/full_dictionary.csv"), c(word, word_id))) %>%
+    group_by(topic) %>%
+    arrange(-mean) %>%
+    slice_head(n=15) %>% # controls how many words are seen in the chart
+    # use the tidytext function reorded_within to have a neat bar chart
+    ggplot(aes(tidytext::reorder_within(topic, -mean, word, sep="."), mean)) +
+    geom_bar(stat="identity", aes(fill=factor(topic))) +
+    facet_wrap(~topic, scales="free_x") +
+    scale_x_discrete(guide = guide_axis(n.dodge=1, angle=30))+
+    theme_minimal() +
+    scale_fill_manual(name="Topic", values=c("blue", "firebrick3")) +
+    xlab("15 most likely words per topic")
+
+```

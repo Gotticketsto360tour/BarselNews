@@ -1,0 +1,203 @@
+```{r}
+library(tidyverse) # general data wrangling
+library(patchwork) # plot composition
+library(R2jags) # modelling
+library(gganimate) # animating plots
+
+
+# Infomedia tag sentences
+infotag <- c(
+"Alt mediemateriale fra Infomedia er ophavsretligt beskyttet.",
+"Du må ikke sælge, videregive, distribuere, gengive eller mangfoldiggøre mediemateriale fra Infomedia uden særlig og skriftlig aftale med udgiverne, som har ophavsretten til materialet.",
+"Det er ikke tilladt at gemme mediemateriale lokalt på f.eks. egen pc.",
+"Alt materiale skal tilgås via Infomedias systemer.",
+"En overtrædelse af nævnte er brud på ophavsretten og vil blive rapporteret til udgiverne, som har ophavsretten.",
+"Infomedia forbeholder sig ret til at kræve kompensation for misbrug, der strider mod jeres aftales bestemmelser eller gældende dansk lovgivning.",
+"Kopiering En aftale med Infomedia giver ikke ret til kopiering af mediemateriale.",
+"Du må ikke foretage videreformidling, kopiering eller udskrivning af materialet. Al tilgang til materialet skal ske i Infomedias systemer",
+"Denne ret kan opnås gennem en aftale med Copydan Tekst & Node, som dækker kopiering på tekstområdet.",
+"Læs mere om mulighederne for analog og digital kopiering for hhv. virksomheder og uddannelser på http://www.tekstognode.dk."
+)
+# load articles
+data <- tibble(read.csv("data/Sentiment Analysis/barsel_data.csv")) %>%
+    filter(køn %in% c("Mand", "kvinde")) %>%
+# Get rid of infomedia tag on some articles
+    filter(!(sentences %in% infotag))
+
+# That's 4746 sentences for 118 articles
+length(unique(data$sentences))
+length(unique(data$ID))
+
+
+## Do the same for the control data
+data_control <- read_csv("data/Sentiment Analysis/control_data.csv") %>%
+    filter(køn %in% c("mand", "Kvinde")) %>%
+    filter(!(is.na(Political_Orientation))) %>%
+# Get rid of infomedia tag on some articles
+    filter(!(sentences %in% infotag))
+```
+
+# Prepare the data for the barsel news analysis
+```{r}
+# sentence level data
+sentences <- data  %>%
+    select(positive_prob, neutral_prob, negative_prob)
+# article level info
+article <- data %>%
+    select(ID) %>% unique() %>%
+    mutate(Na = seq(1,length(.$ID))) %>%
+    left_join(data) %>% select(ID, Na, køn, Political_Orientation)  %>%
+    mutate(gender = ifelse(køn=="Mand", 1, 2)) %>%
+    mutate(politics = ifelse(Political_Orientation=="Right-winged", 2, 1)) %>%
+    select(Na, gender, politics)  %>%
+    mutate(group = floor(politics + (gender * 1.5) -1))
+
+
+write_csv(sentences, "data/Sentiment Analysis/Analysis Ready/barsel_sentence_data.csv" )
+write_csv(article, "data/Sentiment Analysis/Analysis Ready/barsel_article_data.csv" )
+```
+
+# Prepare the data for the control analysis
+```{r}
+# sentence level data
+sentences_control <- data_control  %>%
+    select(positive_prob, neutral_prob, negative_prob)
+# article level info
+article_control <- data_control %>%
+    select(ID) %>% unique() %>%
+    mutate(Na = seq(1,length(.$ID))) %>%
+    left_join(data_control) %>% select(ID, Na, køn, Political_Orientation)  %>% 
+    mutate(gender = ifelse(køn=="mand", 1, 2)) %>%
+    mutate(politics = ifelse(Political_Orientation=="Right-winged", 2, 1)) %>%
+    select(Na, gender, politics)  %>%
+    mutate(group = floor(politics + (gender * 1.5) -1)) # calculate group index
+
+
+write_csv(sentences, "data/Sentiment Analysis/Analysis Ready/control_sentence_data.csv" )
+write_csv(article, "data/Sentiment Analysis/Analysis Ready/control_article_data.csv" )
+```
+
+# Prepare data for the comparaison
+```{r}
+# homogenise ids
+ids <- data %>%
+    select(ID)  %>%
+    mutate(group = 1) %>%
+    bind_rows(select(data_control, ID)) %>%
+    mutate(group = ifelse(is.na(group), 2, group)) %>%
+    unique() %>%
+    mutate(Na = row_number())
+# join data sets
+data_all <- data  %>%
+    select(-c(objective_prob, subjective_prob)) %>%
+    bind_rows(select(data_control, -c(objective_prob, subjective_prob))) %>%
+    left_join(ids)
+
+# extract sentiment and article info
+sentences_all <- data_all %>%
+    select(positive_prob,neutral_prob,negative_prob)
+article_all <- data_all %>%
+    select(Na, group)
+
+write_csv(sentences, "data/Sentiment Analysis/Analysis Ready/comparaison_sentence_data_analysis.csv" )
+write_csv(article, "data/Sentiment Analysis/Analysis Ready/comparaison_article_data.csv" )
+
+```
+
+
+# Example of simulation for parameter recovery check
+```{r}
+## Underlying independent biases
+# Gender bias
+men <- c(.95, .025, .025)
+women <- c(.025, .025, .95)
+# Political bias
+left <- c(.1, .1, .8)
+right <- c(.1, .8, .1)
+
+# calculate group based biases
+ml <- c(.25, .25, .50) #(men*left)/sum(men*left)
+mr <- c(.2, .60, .2) #(men*right)/sum(men*right)
+wl <- c(.45, .45, .1) #(women*left)/sum(women*left)
+wr <- c(.33, .33, .33) #(women*right)/sum(women*right)
+
+# Check perceived differences when independent data is not available
+((ml+mr)/2) - ((wl+wr)/2)
+((ml+wl)/2) - ((mr+wr)/2)
+
+
+
+# generate articles alphas
+## Let's use the same group proportions and number of sentences as in the data
+sim_art_param <- tibble(data.frame(gender = 1, politics=1, LaplacesDemon::rdirichlet(17, 17*ml))) %>%
+    bind_rows(data.frame(gender = 1, politics=2, LaplacesDemon::rdirichlet(37, 37*mr))) %>%
+    bind_rows(data.frame(gender = 2, politics=1,LaplacesDemon::rdirichlet(33, 33*wl))) %>%
+    bind_rows(data.frame(gender = 2, politics=2,LaplacesDemon::rdirichlet(31, 31*wr))) %>%
+    mutate(Na = row_number()) %>%
+    select(Na,gender, politics, X1, X2, X3) %>%
+    left_join(article %>%
+    group_by(Na) %>%
+    summarise(n=n()))
+
+# generate the sentences
+sim <- tibble(Na=c(NA), X1=c(NA), X2=c(NA), X3=c(NA))
+for (a in sim_art_param$Na)
+{
+    sim <- sim %>%
+        bind_rows(data.frame(Na=a, gender=sim_art_param$gender[a],politics=sim_art_param$politics[a], LaplacesDemon::rdirichlet(sim_art_param$n[a], c(sim_art_param$X1[a], sim_art_param$X2[a], sim_art_param$X3[a]))))
+}
+sim <- filter(sim, !is.na(Na))
+```
+
+# Run the model on simulated data_list
+```{r}
+
+# check for time from 25 october 2021
+sim_sentences <- select(sim, -c(Na,gender, politics)) %>%
+                    rename(positive_prob=X1, neutral_prob=X2, negative_prob=X3) %>%
+                    mutate(positive_prob=ifelse(positive_prob==0,0.0000000001,positive_prob)) %>%
+                    mutate(negative_prob=ifelse(negative_prob==0,0.0000000001,negative_prob))%>%
+                    mutate(neutral_prob= ifelse(neutral_prob== 0,0.0000000001,neutral_prob)) %>%
+                    mutate(positive_prob=ifelse(positive_prob==1,0.9999999999,positive_prob)) %>%                 mutate(positive_prob=ifelse(positive_prob==0,0.0000000001,positive_prob)) %>%
+                    mutate(negative_prob=ifelse(negative_prob==1,0.9999999999,negative_prob))%>%
+                    mutate(neutral_prob= ifelse(neutral_prob== 1,0.9999999999,neutral_prob)) %>%
+                    mutate(index=row_number())
+
+
+sim_article <- select(sim, -c(X1, X2, X3)) %>%
+    group_by(Na) %>%
+    mutate(n=length(Na)) %>% ungroup() %>%
+    mutate(group = floor(politics + (gender * 1.5) -1)) %>%
+    left_join(group_table) %>%
+                    mutate(index=row_number())
+
+
+sim_sentences %>%
+    left_join(sim_article) %>%
+    ggplot(aes(negative_prob, positive_prob)) +
+    geom_point(aes(color=neutral_prob), alpha=.8, size=.3) +
+    #geom_density2d_filled(alpha=.5) +
+    facet_grid(politics~gender) +
+    scale_color_distiller(palette=14, direction=1) +
+    theme_minimal() 
+
+
+data_list <- list(
+    y = sim_sentences,
+    Na = max(sim_article$Na),
+    Ng = max(sim_article$group),
+    A = sim_article$Na,
+    G = unique(select(sim_article, c(Na, group)))$group,
+    N = sim_article$n,
+    ng = unique(select(sim_article, c(Na, ng)))$ng,
+    alpha = rep(1, 3)
+)
+
+## Propagating Uncertainty in uncertain times
+params = c("Ea", "Eg", "delta_pol", "delta_gen")
+samples.sim <- jags.parallel(data_list, inits=NULL, params, model.file ="model/Dirichlet all the way down.bugs",
+                n.chains=12, n.iter=10000, n.burnin=2500, n.thin=1)
+# summary
+samples.sim
+
+```
