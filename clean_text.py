@@ -1,31 +1,21 @@
 import pandas as pd
 import string
 import spacy
+from tqdm import tqdm
 
+# load the data
 d = pd.read_csv("data/Article_sentiment.csv", sep=";")
+d_pol = pd.read_csv("data/data_political1.csv")
 
-
-def which_max(x, y, z):
-    list_of_vals = [x, y, z]
-    list_of_labels = ["positive", "neutral", "negative"]
-    max_val = max(list_of_vals)
-    for i, e in enumerate(list_of_vals):
-        if e == max_val:
-            return list_of_labels[i]
-
-
+# calculate the number of words per sentence
 d["length"] = d["sentences"].apply(lambda x: len(x.split()))
+# exclude sentences of less than three words
 d = d[d["length"] > 2].reset_index(drop=True)
-
-d = d[d["køn"].isin(["Mand", "kvinde"])].reset_index(drop=True)
-d["køn"] = pd.Categorical(d["køn"]).codes
-
-political = pd.read_csv("data/data_political1.csv")
-political = political[["ID", "Political_Orientation"]]
-
-
+# merge with political data to include political orientation for articles
+political = d_pol[["ID", "Political_Orientation"]]
 d = d.merge(political, on="ID")
 
+# list of endings of articles that need to excluded from the texts
 list_of_stoppers = [
     "LINEA SØGAARD-LIDELL EU-parlamentariker, Venstre.",
     " I LLU ST RATION: ",
@@ -81,7 +71,7 @@ list_of_stoppers = [
     "/ritzau/",
     " Foto: ",
 ]
-
+# loop through and take text before the list of stoppers
 for stopper in list_of_stoppers:
     d["article"] = d["article"].apply(lambda x: x.split(stopper)[0])
 d = d.reset_index()
@@ -92,14 +82,16 @@ texts = d["article"].values
 nlp = spacy.load("da_core_news_lg")
 
 
-# Tags I want to remove from the text, adjektiver, pronominer, conjunctions, punktum, mellemrum, præpositioner, tal, symbols
-removal = ["ADV", "PRON", "CCONJ", "PUNCT", "PART", "DET", "ADP", "SPACE", "NUM", "SYM"]
+# drop duplicates to have a row per article
+# d_tokens = d.drop_duplicates("merge_index").reset_index(drop=True)
+d_tokens = d.copy()
 
-d = d.drop_duplicates("merge_index").reset_index(drop=True)
+# POS Tags to remove from tokens
+removal = ["ADV", "PRON", "CCONJ", "PUNCT", "PART", "DET", "ADP", "SPACE", "NUM", "SYM"]
 
 # Cleaning the text: leammatising the words, remove "removal", and lower text
 tokens = []
-for summary in nlp.pipe(texts):
+for summary in tqdm(nlp.pipe(texts), total=len(texts)):
     proj_tok = [
         token.lemma_.lower()
         for token in summary
@@ -107,14 +99,15 @@ for summary in nlp.pipe(texts):
     ]
     tokens.append(proj_tok)
 
-d["tokens"] = tokens
+# add column for tokens
+d_tokens["tokens"] = tokens
 
-# d = pd.read_csv("data/data_token.csv")
+# explode tokens, making each token have its own row
+explosion = d_tokens["tokens"].explode().reset_index()
+# create index column for merging
+d_tokens = d_tokens.reset_index()
 
-explosion = d["tokens"].explode().reset_index()
-d = d.reset_index()
-
-d_long = d[[x for x in d.columns if x != "tokens"]].merge(explosion)
+d_long = d_tokens[[x for x in d.columns if x != "tokens"]].merge(explosion)
 
 d_long["word"] = d_long["tokens"].apply(
     lambda x: x.translate(str.maketrans("", "", string.punctuation))
@@ -192,7 +185,7 @@ mapping = {
     "fagbevægelsenenenenen": "fagbevægelse",
 }
 
-with open("stopord.txt") as f:
+with open("stopwords/stopwords.txt") as f:
     stopwords_list = f.read()
 
 stopwords = stopwords_list.split("\n")
@@ -213,16 +206,24 @@ data = d_long[~d_long["word"].isin(stopwords)]
 
 data = data[data.columns[3:]].reset_index(drop=True)
 
-d_pol = pd.read_csv("data/data_political1.csv")
+d = d[
+    [
+        x
+        for x in d.columns
+        if x not in ["index", "Unnamed: 0", "merge_index", "X", "length"]
+    ]
+]
 
-data = data.merge(
-    d_pol[["ID", "vedtagelse", "Political_Orientation", "category"]],
-    on="ID",
-    how="outer",
-)
+data = data[
+    [
+        x
+        for x in data.columns
+        if x not in ["index", "Unnamed: 0", "merge_index", "X", "length"]
+    ]
+]
 
 # add political information for  article sentiment and clean for sentences with less than 3 words
-d.to_csv("data/article_sentiment.csv", index=False)
+d.to_csv("data/barsel_data.csv", index=False)
 
 # final data for LDA
 data.to_csv("data/preprocessed_words.csv", index=False)
