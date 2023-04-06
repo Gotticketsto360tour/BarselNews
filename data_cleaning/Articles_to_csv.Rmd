@@ -215,7 +215,7 @@ for (text in 1:length(barsel_sentences$article)) {
 
 barsel_sentences1 <- merge(data_sentences, barsel_sentences)
 
-write.csv(barsel_sentences1, "./data/barsel_sentences")
+write.csv(barsel_sentences1, "./data/barsel_sentences.csv", sep = ";")
 ```
 
 Now doing the same for the average articles 
@@ -291,7 +291,7 @@ write.csv(mangler, "./data/average_article_sentences_mangler.csv")
 
 
 ```{r}
-write.csv(Df_only_copy, "./data/average_article_sentences_.csv")
+write.csv(Df_only_copy, "./data/control_sentences.csv")
 ```
 
 
