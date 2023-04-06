@@ -1,5 +1,5 @@
-# INSERT TITLE OF THE PAPER
-This repository contains the code for reproducing the results of the analysis of INSERT TITLE OF THE PAPER. 
+# Whose job is it anyway? An analysis of the sentiment, semantics and contributors to the Danish news coverage of a parental leave reform  
+This repository contains the code for reproducing the results of the analysis of "Whose job is it anyway? An analysis of the sentiment, semantics and contributors to the Danish news coverage of a parental leave reform". 
 The data from the articles is not available for sharing due to restrictions on data sharing from Infomedia. With access to Infomedia, this repository aims to illuminate the specific preprocessing and analysis decisions made, and to make it reproducible for interested parties.
 
 ## Requirements
