@@ -4,7 +4,7 @@ import pandas as pd
 from danlp.models import load_bert_tone_model
 from tqdm import tqdm
 
-barsel_data = pd.read_csv("data/barsel_sentences.csv", sep=";")
+barsel_data = pd.read_csv("data/barsel_sentences.csv", sep=",")
 control_data = pd.read_csv("data/control_sentences.csv", sep=",")
 
 # load the tone model
