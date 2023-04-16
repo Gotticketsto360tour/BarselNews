@@ -187,8 +187,8 @@ sim %>%
 # Run the dirichlet all the way down model on control data
 ```{r}
 # Load the data
-sentences <- read_csv("data/Sentiment Analysis/Analysis Ready/control_sentence_data.csv")
-article <- read_csv("data/Sentiment Analysis/Analysis Ready/control_article_data.csv")
+sentences_control <- read_csv("data/Sentiment Analysis/Analysis Ready/control_sentence_data.csv")
+article_control <- read_csv("data/Sentiment Analysis/Analysis Ready/control_article_data.csv")
 # How many articles for each group
 group_table_control <- article_control %>%
     unique() %>%
@@ -277,8 +277,8 @@ ggplot() +
 # Test a difference between Barsel and Control
 ```{r}
 # Load the data
-sentences <- read_csv("data/Sentiment Analysis/Analysis Ready/comparaison_sentence_data.csv")
-article <- read_csv("data/Sentiment Analysis/Analysis Ready/comparaison_article_data.csv")
+sentences_all <- read_csv("data/Sentiment Analysis/Analysis Ready/comparaison_sentence_data.csv")
+article_all <-   read_csv("data/Sentiment Analysis/Analysis Ready/comparaison_article_data.csv")
 # How many articles for each group
 group_table_all <- article_all %>%
     unique() %>%
@@ -315,7 +315,7 @@ eg <-s  %>%
     select(contains("Eg")) %>%
     pivot_longer(contains("Eg")) %>%
     separate(name, into=c("variable", "group", "sentiment")) %>%
-    mutate(group = ifelse(group == 1, "leave reform news", "control news"))
+    mutate(group = ifelse(group == 1, "leave reform news", "general news"))
 # Plot
 eg %>%
     mutate(sentiment=case_when(sentiment == 1 ~ "positive",

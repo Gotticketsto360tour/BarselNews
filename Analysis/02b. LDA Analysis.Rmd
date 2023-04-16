@@ -119,6 +119,16 @@ d_dist %>%
 
 # Topic 1 is more likely on the left
 (47/(40+47))*100
+
+
+d_dist %>%
+    left_join(summarise(group_by(d_model, ID), Political_Orientation, køn)) %>%
+    unique() %>%
+    filter(topic == 2) %>%
+    filter(!(køn %in% c("Begge", "Ingen"))) %>%
+    filter(!is.na(Political_Orientation)) %>%
+    group_by(Political_Orientation, køn) %>%
+    summarise(n=n(), mean=mean(mean)) -> m
 ```
 
 ```{r}
@@ -163,6 +173,7 @@ d_dist %>%
     xlab("Mean probability of Topic 2 in article")
 
 
+
 ## Raincloud plot
 d_dist  %>%
     left_join(summarise(group_by(d_model, ID), Political_Orientation, køn)) %>%
@@ -177,6 +188,7 @@ d_dist  %>%
     # add half-violin from {ggdist} package
     ggdist::stat_halfeye( alpha=.7,
         # adjust bandwidth
+
         adjust = 1,
         # move to the right
         justification = -0.15,
@@ -198,7 +210,39 @@ d_dist  %>%
      scale_fill_manual(values=c("firebrick3","blue")) +
     ylab("Mean probability of Topic 2 in article") +
     xlab("Politics")
+# Summarise
+d_dist  %>%
+    left_join(summarise(group_by(d_model, ID), Political_Orientation, køn)) %>%
+    unique() %>%
+    filter(!(køn %in% c("Begge", "Ingen"))) %>%
+    mutate(gender = ifelse(køn == "kvinde", "female journalist", "male journalist")) %>%
+    filter(!is.na(Political_Orientation)) %>%
+    mutate(Politics = ifelse(Political_Orientation == "Left-winged", "left-oriented", "right-oriented")) %>%
+    filter(topic==2)  %>%
+    group_by(køn, Politics) %>%
+    summarise(mean(mean), median(mean), sd(mean))
 
+d_dist  %>%
+    left_join(summarise(group_by(d_model, ID), Political_Orientation, køn)) %>%
+    unique() %>%
+    filter(!(køn %in% c("Begge", "Ingen"))) %>%
+    mutate(gender = ifelse(køn == "kvinde", "female journalist", "male journalist")) %>%
+    filter(!is.na(Political_Orientation)) %>%
+    mutate(Politics = ifelse(Political_Orientation == "Left-winged", "left-oriented", "right-oriented")) %>%
+    filter(topic==2)  %>%
+    group_by(Politics) %>%
+    summarise(mean(mean), median(mean), sd(mean))
+
+d_dist  %>%
+    left_join(summarise(group_by(d_model, ID), Political_Orientation, køn)) %>%
+    unique() %>%
+    filter(!(køn %in% c("Begge", "Ingen"))) %>%
+    mutate(gender = ifelse(køn == "kvinde", "female journalist", "male journalist")) %>%
+    filter(!is.na(Political_Orientation)) %>%
+    mutate(Politics = ifelse(Political_Orientation == "Left-winged", "left-oriented", "right-oriented")) %>%
+    filter(topic==2)  %>%
+    group_by(køn) %>%
+    summarise(mean(mean), median(mean), sd(mean))
 ```
 
 # Words in Topic

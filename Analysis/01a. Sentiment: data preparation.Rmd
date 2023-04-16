@@ -73,8 +73,8 @@ article_control <- data_control %>%
     mutate(group = floor(politics + (gender * 1.5) -1)) # calculate group index
 
 
-write_csv(sentences, "data/Sentiment Analysis/Analysis Ready/control_sentence_data.csv" )
-write_csv(article, "data/Sentiment Analysis/Analysis Ready/control_article_data.csv" )
+write_csv(sentences_control, "data/Sentiment Analysis/Analysis Ready/control_sentence_data.csv" )
+write_csv(article_control, "data/Sentiment Analysis/Analysis Ready/control_article_data.csv" )
 ```
 
 # Prepare data for the comparaison
@@ -99,8 +99,8 @@ sentences_all <- data_all %>%
 article_all <- data_all %>%
     select(Na, group)
 
-write_csv(sentences, "data/Sentiment Analysis/Analysis Ready/comparaison_sentence_data_analysis.csv" )
-write_csv(article, "data/Sentiment Analysis/Analysis Ready/comparaison_article_data.csv" )
+write_csv(sentences_all, "data/Sentiment Analysis/Analysis Ready/comparaison_sentence_data.csv" )
+write_csv(article_all, "data/Sentiment Analysis/Analysis Ready/comparaison_article_data.csv" )
 
 ```
 
